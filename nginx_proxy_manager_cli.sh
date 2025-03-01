@@ -2573,7 +2573,7 @@ generate_certificate() {
 enable_ssl() {
   if [ -z "$HOST_ID" ]; then
     echo -e "\n 🛡️ The --host-ssl-enable option requires a host ID."
-    echo -e "  --host-ssl-enable id                   🔒 ${COLOR_GREEN}Enable${CoR}  SSL, HTTP/2, and HSTS for a proxy host (Enabled only if exist, check ${COLOR_ORANGE}--generate-cert${CoR} to create one)"
+    echo -e "  --host-ssl-enable id                   🔒 ${COLOR_GREEN}Enable${CoR}  SSL, HTTP/2, and HSTS for a proxy host (Always uses certificate ID 1)"
     exit 1  # Exit if no HOST_ID is provided
   fi
 
@@ -2585,71 +2585,15 @@ enable_ssl() {
 
   echo -e "\n ✅ Enabling 🔒 SSL, HTTP/2, and HSTS for proxy host ID: $HOST_ID..."
 
-  # Check host details
+  # Check host details (just to display info)
   CHECK_RESPONSE=$(curl -s -X GET "$BASE_URL/nginx/proxy-hosts/$HOST_ID" \
   -H "Authorization: Bearer $(cat "$TOKEN_FILE")")
-  CERTIFICATE_ID=$(echo "$CHECK_RESPONSE" | jq -r '.certificate_id')
   DOMAIN_NAMES=$(echo "$CHECK_RESPONSE" | jq -r '.domain_names[]')
-  # Fetch all certificates (custom and Let's Encrypt)
-  CERTIFICATES=$(curl -s -X GET "$BASE_URL/nginx/certificates" \
-  -H "Authorization: Bearer $(cat "$TOKEN_FILE")")
-  # Find all certificates for the given domain based on either domain_names or nice_name
-  DOMAIN_CERTS=$(echo "$CERTIFICATES" | jq -c --arg domain "$DOMAIN_NAMES" \
-    '[.[] | select((.domain_names[] == $domain) or (.nice_name == $domain))]')
-  # Count the number of certificates found
-  CERT_COUNT=$(echo "$DOMAIN_CERTS" | jq 'length')
-  # Ensure CERT_COUNT is treated as an integer
-  CERT_COUNT=${CERT_COUNT:-0}
+  
+  # Force certificate ID to always be 1
+  CERTIFICATE_ID=1
+  echo " ✅ Using fixed certificate ID: $CERTIFICATE_ID"
 
-  if [ "$CERT_COUNT" -eq 0 ]; then
-    echo -e " ⛔ No certificate associated with this host.\n"
-
-    # Ask user if they want to generate a new certificate
-    echo -e "\n 👀 Checking if Let's Encrypt certificate for domain: $DOMAIN_NAMES exists..."
-    EXISTING_CERT=$(echo "$CERTIFICATES" | jq -r --arg DOMAIN "$DOMAIN_NAMES" '.[] | select(.domain_names[] == $DOMAIN)')
-    if [ -n "$EXISTING_CERT" ]; then
-      EXPIRES_ON=$(echo "$EXISTING_CERT" | jq -r '.expires_on')
-      echo -e " 🔔 Certificate for $DOMAIN_NAMES already exists and is valid until $EXPIRES_ON.\n"
-    else
-      if [ "$AUTO_YES" = true ]; then
-        echo -e "🔔 The -y option was provided. Skipping confirmation prompt and proceeding with certificate creation..."
-        CONFIRM_CREATE="y"
-      else
-        read -r -p "⚠️ No certificate found for $DOMAIN_NAMES. Do you want to create a new Let's Encrypt certificate? (y/n): " CONFIRM_CREATE
-      fi
-      if [[ "$CONFIRM_CREATE" == "y" ]]; then
-        # Prompt for email if not set
-        read -r -p "Please enter your email for Let's Encrypt: " EMAIL
-
-        # Call the function to generate the certificate
-        DOMAIN="$DOMAIN_NAMES"
-        generate_certificate
-        return  # Exit after generating the certificate
-      else
-        echo -e " ❌ Certificate creation aborted. Exiting."
-        exit 1
-      fi
-    fi
-  elif [ "$CERT_COUNT" -gt 1 ]; then
-    echo " ⚠️ Multiple certificates found for domain $DOMAIN_NAMES. Please select one:"
-    # Display the certificates with provider and validity dates
-    echo "$DOMAIN_CERTS" | jq -r 'to_entries[] | "\(.key + 1)) Provider: \(.value.provider), Valid From: \(.value.valid_from), Valid To: \(.value.valid_to)"'
-    # Ask the user to choose the certificate
-    read -r -p "Enter the number of the certificate you want to use: " CERT_INDEX
-    # Ensure proper handling of the selected certificate
-    CERT_INDEX=$((CERT_INDEX - 1))  # Adjust for 0-index
-    CERTIFICATE_ID=$(echo "$DOMAIN_CERTS" | jq -r ".[$CERT_INDEX].id")
-  else
-    # Only one certificate found, use it
-    CERTIFICATE_ID=$(echo "$DOMAIN_CERTS" | jq -r '.[0].id')
-    echo " ✅ Using certificate ID: $CERTIFICATE_ID"
-  fi
-
-  # Verify if CERTIFICATE_ID is empty
-  if [ -z "$CERTIFICATE_ID" ]; then
-    echo " ⛔ No valid certificate ID found. Aborting."
-    exit 1
-  fi
   # Update the host with SSL enabled
   DATA=$(jq -n --arg cert_id "$CERTIFICATE_ID" '{
     certificate_id: $cert_id,
@@ -2668,7 +2612,7 @@ enable_ssl() {
   HTTP_BODY=${HTTP_RESPONSE//HTTPSTATUS:*/}
   HTTP_STATUS=${HTTP_RESPONSE##*HTTPSTATUS:}
   if [ "$HTTP_STATUS" -eq 200 ]; then
-    echo -e "\n ✅ ${COLOR_GREEN}SSL, HTTP/2, and HSTS enabled successfully!${CoR}\n"
+    echo -e "\n ✅ ${COLOR_GREEN}SSL, HTTP/2, and HSTS enabled successfully with certificate ID 1!${CoR}\n"
   else
     echo -e "\n 👉Data sent: $DATA"  # Log the data sent
     echo -e "\n ⛔ ${COLOR_RED}Failed to enable SSL, HTTP/2, and HSTS. HTTP status: $HTTP_STATUS. Response: $HTTP_BODY${CoR}\n"
