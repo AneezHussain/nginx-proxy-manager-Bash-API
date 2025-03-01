@@ -2600,7 +2600,7 @@ enable_ssl() {
     ssl_forced: true,
     http2_support: true,
     hsts_enabled: true,
-    hsts_subdomains: false
+    hsts_subdomains: true,
   }')
 
   echo -e "\n Data being sent for SSL enablement: $DATA"  # Log the data being sent
